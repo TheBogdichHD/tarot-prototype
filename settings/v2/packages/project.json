@@ -4,8 +4,19 @@
     "designResolution": {
       "width": 640,
       "height": 960,
-      "fitHeight": true
+      "fitHeight": true,
+      "fitWidth": true
     }
   },
-  "custom_joint_texture_layouts": []
+  "custom_joint_texture_layouts": [],
+  "layer": [
+    {
+      "name": "Game",
+      "value": 1
+    },
+    {
+      "name": "UI",
+      "value": 2
+    }
+  ]
 }
