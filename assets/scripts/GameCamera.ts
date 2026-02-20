@@ -14,7 +14,7 @@ const { ccclass, property } = _decorator;
 
 @ccclass('GameCamera')
 export class GameCamera extends Component {
-    private camera: Camera | null = null;
+    private camera: Camera = null;
 
     @property
     private minZoom: number = 300;
@@ -31,7 +31,7 @@ export class GameCamera extends Component {
 
     private pinchStartDist: number = 0;
     private pinchStartOrtho: number = 0;
-    private isPinching: boolean = false;
+    public isPinching: boolean = false;
 
     private lastPinchMidScreen: Vec2 = new Vec2();
 
@@ -62,8 +62,6 @@ export class GameCamera extends Component {
             Math.min(this.camera.orthoHeight, this.maxZoom)
         );
     }
-
-    // -------- mouse --------
 
     private onMouseWheel(event: EventMouse) {
         const delta = event.getScrollY();
@@ -98,8 +96,6 @@ export class GameCamera extends Component {
         this.camera.node.position = this.camera.node.position.add(worldDelta);
     }
 
-    // -------- pinch helpers --------
-
     private getTwoTouchesPositions(event: EventTouch): Vec2[] {
         const touches = event.getAllTouches();
 
@@ -115,8 +111,6 @@ export class GameCamera extends Component {
         const dy = a.y - b.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
-
-    // -------- touch / pinch --------
 
     private onTouchStart(event: EventTouch) {
         const touches = event.getAllTouches();

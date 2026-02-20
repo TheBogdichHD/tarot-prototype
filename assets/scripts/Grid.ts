@@ -1,112 +1,189 @@
-import { _decorator, Component, Graphics, Vec2, UITransform } from 'cc';
+import { _decorator, Component, Vec2, Graphics, Color, CCInteger, JsonAsset } from 'cc';
+
 const { ccclass, property } = _decorator;
+
+interface GridPoint {
+    position: Vec2;
+    row: number;
+    col: number;
+    isInteractable: boolean;
+    isGoal: boolean;
+}
+
+interface Level {
+    id: number;
+    name: string;
+    rows: number;
+    cols: number;
+    interactablePoints: { row: number; col: number }[];
+    goalPoints: { row: number; col: number }[];
+}
+
+interface LevelData {
+    levels: Level[];
+}
 
 @ccclass('Grid')
 export class Grid extends Component {
-    private graphics: Graphics | null = null;
+    @property
+    public cellDistance: number = 100;
 
     @property
-    private rows: number = 4;
-    @property
-    private cols: number = 4;
-    @property
-    private cellSize: number = 100;
+    private pointColor: Color = new Color(255, 255, 255, 128);
 
-    @property({ type: [Vec2] })
-    private specialPoints: Vec2[] = [];
+    @property
+    private pointRadius: number = 1;
 
-    private gridWidth: number = 0;
-    private gridHeight: number = 0;
-    private halfW: number = 0;
-    private halfH: number = 0;
+    @property
+    private interactablePointColor: Color = new Color(0, 255, 0, 128);
+
+    @property
+    private interactablePointRadius: number = 6;
+
+    @property
+    private goalPointColor: Color = new Color(255, 255, 0, 255);
+
+    @property
+    private goalPointRadius: number = 8;
+
+    @property(JsonAsset)
+    private levelDataAsset: JsonAsset = null;
+
+    private currentLevel: Level = null;
+
+    private gridPoints: GridPoint[][] = [];
+    private interactablePoints: GridPoint[] = [];
+
+    private graphics: Graphics = null;
+
+    private get levelData(): LevelData {
+        return this.levelDataAsset.json as LevelData;
+    }
 
     start() {
         this.graphics = this.getComponent(Graphics);
-        this.calculateGridDimensions();
-        this.drawGrid();
+
+        this.loadLevel(1);
     }
 
-    private calculateGridDimensions() {
-        this.gridWidth = (this.cols - 1) * this.cellSize;
-        this.gridHeight = (this.rows - 1) * this.cellSize;
-        this.halfW = this.gridWidth * 0.5;
-        this.halfH = this.gridHeight * 0.5;
+    private loadLevel(levelId: number) {
+        this.currentLevel = this.levelData.levels.find(level => level.id === levelId);
+
+        this.generateGrid();
+        this.drawGrid();
     }
 
     private drawGrid() {
         this.graphics.clear();
 
-        this.graphics.fillColor.fromHEX('#666666');
-        for (let r = 0; r < this.rows; r++) {
-            const y = -this.halfH + r * this.cellSize;
-            for (let c = 0; c < this.cols; c++) {
-                const x = -this.halfW + c * this.cellSize;
-                this.graphics.circle(x, y, this.graphics.lineWidth);
-                this.graphics.fill();
+        for (const point of this.gridPoints) {
+            for (const p of point) {
+                this.drawPoint(p);
             }
-        }
-
-        for (const p of this.specialPoints) {
-            const col = p.x;
-            const row = p.y;
-
-            if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) {
-                continue;
-            }
-
-            const sx = -this.halfW + col * this.cellSize;
-            const sy = -this.halfH + row * this.cellSize;
-
-            this.graphics.fillColor.fromHEX('#ff0000');
-            this.graphics.circle(sx, sy, this.graphics.lineWidth * 1.5);
-            this.graphics.fill();
         }
     }
 
-    public getGridPoint(local: Vec2): {
-        col: number;
-        row: number;
-        dist: number;
-        isSpecial: boolean;
-        position: Vec2;
-    } | null {
-        const rawCol = (local.x + this.halfW) / this.cellSize;
-        const rawRow = (local.y + this.halfH) / this.cellSize;
-        const col = Math.round(rawCol);
-        const row = Math.round(rawRow);
+    private drawPoint(point: GridPoint) {
+        let color = this.pointColor;
+        let radius = this.pointRadius;
 
-        if (col < 0 || col >= this.cols || row < 0 || row >= this.rows) {
-            return null;
+        if (point.isGoal) {
+            color = this.goalPointColor;
+            radius = this.goalPointRadius;
+        } else if (point.isInteractable) {
+            color = this.interactablePointColor;
+            radius = this.interactablePointRadius;
         }
 
-        const snapX = -this.halfW + col * this.cellSize;
-        const snapY = -this.halfH + row * this.cellSize;
-        const dx = local.x - snapX;
-        const dy = local.y - snapY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        this.graphics.fillColor = color;
+        this.graphics.circle(point.position.x, point.position.y, radius);
+        this.graphics.fill();
+    }
 
-        const isSpecial = this.specialPoints.some(p => p.x === col && p.y === row);
+    private generateGrid() {
+        this.gridPoints = [];
+        this.interactablePoints = [];
+
+        const gridWidth = (this.currentLevel.cols - 1) * this.cellDistance;
+        const gridHeight = (this.currentLevel.rows - 1) * this.cellDistance;
+        const offsetX = gridWidth * 0.5;
+        const offsetY = gridHeight * 0.5;
+
+        const isInteractablePoint = (row: number, col: number): boolean => {
+            return this.currentLevel.interactablePoints.some(p => p.row === row && p.col === col);
+        };
+
+        const isGoalPoint = (row: number, col: number): boolean => {
+            return this.currentLevel.goalPoints.some(p => p.row === row && p.col === col);
+        };
+
+        for (let row = 0; row < this.currentLevel.rows; row++) {
+            this.gridPoints[row] = [];
+
+            for (let col = 0; col < this.currentLevel.cols; col++) {
+                const localX = col * this.cellDistance - offsetX;
+                const localY = -(row * this.cellDistance) + offsetY;
+
+                const position = new Vec2(localX, localY);
+                const isInteractable = isInteractablePoint(row, col);
+                const isGoal = isGoalPoint(row, col);
+
+                const point: GridPoint = {
+                    position,
+                    row,
+                    col,
+                    isInteractable,
+                    isGoal
+                };
+
+                this.gridPoints[row][col] = point;
+
+                if (isInteractable) {
+                    this.interactablePoints.push(point);
+                }
+            }
+        }
+    }
+
+
+    public getNearestPoint(pos: Vec2): {
+        position: Vec2;
+        distance: number;
+    } {
+        if (this.interactablePoints.length === 0) {
+            return { position: null, distance: Infinity };
+        }
+
+        let nearestPoint: GridPoint | null = null;
+        let minDistance = Infinity;
+
+        for (const point of this.interactablePoints) {
+            const distance = Vec2.distance(pos, point.position);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestPoint = point;
+            }
+        }
 
         return {
-            col,
-            row,
-            dist,
-            isSpecial,
-            position: new Vec2(snapX, snapY)
+            position: nearestPoint.position,
+            distance: minDistance,
         };
     }
 
-    public getWorldPosition(col: number, row: number): Vec2 {
-        const x = -this.halfW + col * this.cellSize;
-        const y = -this.halfH + row * this.cellSize;
-        return new Vec2(x, y);
+    public getPointAt(pos: Vec2): GridPoint | null {
+        if (this.interactablePoints.length === 0) {
+            return null;
+        }
+
+        for (const point of this.interactablePoints) {
+            if (point.position.equals(pos)) {
+                return point;
+            }
+        }
     }
 
-    public updateGrid(rows: number, cols: number, cellSize: number) {
-        this.rows = rows;
-        this.cols = cols;
-        this.cellSize = cellSize;
-        this.calculateGridDimensions();
-        this.drawGrid();
+    public getAllinteractablePoints(): GridPoint[] {
+        return this.interactablePoints;
     }
 }

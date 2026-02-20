@@ -20,41 +20,49 @@ import {
 const { ccclass, property } = _decorator;
 
 import { Grid } from './Grid';
+import { ShapeValidator } from "./ShapeValidator";
+import { GameCamera } from './GameCamera';
 
 @ccclass('Drawing')
 export class Drawing extends Component {
     @property(Camera)
-    private camera: Camera | null = null;
+    private camera: Camera = null;
 
     @property(Grid)
-    private grid: Grid | null = null;
+    private grid: Grid = null;
 
-    @property
-    private snapDistance: number = 30;
+    @property(Graphics)
+    private committedLinesGraphics: Graphics = null;
 
-    @property
-    private lineWidth: number = 5;
 
-    @property
-    private pointColor: Color = new Color(255, 0, 0, 255);
-
-    @property
-    private lineColor: Color = new Color(0, 0, 255, 255);
+    @property(Node)
+    private particlesParent: Node = null;
 
     @property(Prefab)
-    private particlePrefab: Prefab | null = null;
+    private particlePrefab: Prefab = null;
 
-    private graphics: Graphics | null = null;
-    private uiTransform: UITransform | null = null;
+    @property(Prefab)
+    private commitedParticlePrefab: Prefab = null;
+
+    @property
+    private snapDistance: number = 20;
+
+
+    private graphics: Graphics = null;
+    private uiTransform: UITransform = null;
+    private gameCamera: GameCamera = null;
 
     private points: Vec2[] = [];
     private isDrawing: boolean = false;
     private currentPosition: Vec2 | null = null;
     private dragParticle: Node | null = null;
 
+    private committedPaths: Vec2[][] = [];
+
     start() {
         this.graphics = this.getComponent(Graphics);
         this.uiTransform = this.getComponent(UITransform);
+        this.gameCamera = this.camera.getComponent(GameCamera);
 
         if (sys.isMobile) {
             input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
@@ -88,13 +96,24 @@ export class Drawing extends Component {
 
     private onTouchStart(event: EventTouch) {
         const touches = event.getAllTouches();
+
         if (touches.length >= 2) return;
+
+        if (this.gameCamera.isPinching) {
+            this.cancelDrawing();
+            return;
+        }
 
         this.startDrawingAtScreenPos(event.getLocation());
     }
 
     private onTouchMove(event: EventTouch) {
         if (!this.isDrawing) return;
+
+        if (this.gameCamera.isPinching) {
+            this.cancelDrawing();
+            return;
+        }
 
         this.updateDrawing(event.getLocation());
     }
@@ -113,14 +132,11 @@ export class Drawing extends Component {
 
     private startDrawingAtScreenPos(screenPos: Vec2) {
         const localPos = this.getLocalPosFromScreen(screenPos);
-        const snappedPoint = this.grid.getGridPoint(localPos);
+        const snappedPoint = this.grid.getNearestPoint(localPos);
 
-        if (!snappedPoint) return;
+        if (snappedPoint.distance <= this.snapDistance)
+            this.points = [snappedPoint.position];
 
-        if (snappedPoint!.dist <= this.snapDistance)
-            this.points.push(snappedPoint.position);
-
-        this.points = [snappedPoint.position];
         this.isDrawing = true;
         this.currentPosition = localPos;
 
@@ -131,39 +147,57 @@ export class Drawing extends Component {
 
     private updateDrawing(screenPos: Vec2) {
         const localPos = this.getLocalPosFromScreen(screenPos);
-        const snappedPoint = this.grid.getGridPoint(localPos);
+        const snappedPoint = this.grid.getNearestPoint(localPos);
 
-        if (snappedPoint) {
-            if (snappedPoint.dist <= this.snapDistance && !this.points[this.points.length - 1].equals(snappedPoint.position)) {
+        if (snappedPoint.distance <= this.snapDistance) {
+            if (this.points.length === 0 || !this.points[this.points.length - 1].equals(snappedPoint.position)) {
                 this.points.push(snappedPoint.position);
             }
+
+            this.currentPosition = snappedPoint.position;
+        } else {
+            this.currentPosition = localPos;
         }
 
-
-        this.currentPosition = localPos;
         this.drawAll();
 
         this.updateDragParticle();
-
     }
 
     private finishDrawing() {
         if (!this.isDrawing || !this.currentPosition) return;
 
-        this.isDrawing = false;
-        this.currentPosition = null;
-        this.drawAll();
+        this.graphics.clear();
 
         this.deleteDragParticle();
+
+        if (this.points.length > 1) {
+            const shape = this.getShape();
+
+            if (ShapeValidator.validateShape(shape)) {
+                this.committedPaths.push(this.points);
+                this.drawCommittedPaths();
+                this.spawnParticlesOnPath(this.points);
+            }
+        }
+
+        this.isDrawing = false;
+        this.currentPosition = null;
+        this.points = [];
+    }
+
+    private cancelDrawing() {
+        this.graphics.clear();
+        this.deleteDragParticle();
+        this.isDrawing = false;
+        this.currentPosition = null;
+        this.points = [];
     }
 
     private drawAll() {
         this.graphics.clear();
 
         if (this.points.length > 1) {
-            this.graphics.lineWidth = this.lineWidth;
-            this.graphics.strokeColor = this.lineColor;
-
             this.graphics.moveTo(this.points[0].x, this.points[0].y);
 
             for (let i = 1; i < this.points.length; i++) {
@@ -176,20 +210,12 @@ export class Drawing extends Component {
         if (this.isDrawing && this.currentPosition && this.points.length > 0) {
             const lastPoint = this.points[this.points.length - 1];
 
-            this.graphics.lineWidth = this.lineWidth;
-
             this.graphics.moveTo(lastPoint.x, lastPoint.y);
             this.graphics.lineTo(this.currentPosition.x, this.currentPosition.y);
             this.graphics.stroke();
         }
 
-        this.graphics.fillColor = this.pointColor;
-        const pointRadius = this.lineWidth * 1.5;
-
-        for (const point of this.points) {
-            this.graphics.circle(point.x, point.y, pointRadius);
-            this.graphics.fill();
-        }
+        const pointRadius = this.graphics.lineWidth * 1.18;
 
         if (this.currentPosition) {
             this.graphics.circle(this.currentPosition.x, this.currentPosition.y, pointRadius);
@@ -199,7 +225,7 @@ export class Drawing extends Component {
 
     private createDragParticle() {
         const p = instantiate(this.particlePrefab);
-        this.node.addChild(p);
+        this.particlesParent.addChild(p);
         p.setPosition(this.currentPosition.toVec3());
         this.dragParticle = p;
     }
@@ -213,27 +239,65 @@ export class Drawing extends Component {
         this.dragParticle = null;
     }
 
+    private spawnParticlesOnPath(path: Vec2[]) {
+        const step = 30;
 
-    public clearDrawing() {
-        this.points = [];
-        this.isDrawing = false;
-        this.currentPosition = null;
-        if (this.graphics) {
-            this.graphics.clear();
+        for (let i = 0; i < path.length - 1; i++) {
+            const start = path[i];
+            const end = path[i + 1];
+
+            const segment = new Vec2(end.x - start.x, end.y - start.y);
+            const segmentLength = segment.length();
+
+            if (segmentLength === 0) {
+                continue;
+            }
+
+            const dir = segment.normalize();
+            let travelled = 0;
+
+            while (travelled <= segmentLength) {
+                const pos = new Vec2(
+                    start.x + dir.x * travelled,
+                    start.y + dir.y * travelled
+                );
+
+                const particleNode = instantiate(this.commitedParticlePrefab);
+                this.particlesParent.addChild(particleNode);
+                particleNode.setPosition(new Vec3(pos.x, pos.y, 0));
+
+                travelled += step;
+            }
         }
     }
 
-    public getDrawnPoints(): Array<{ col: number, row: number }> {
-        const result = [];
+
+    public getShape(): Array<{ row: number, col: number }> {
+        // TODO: Include points on edges that weren't snapped
+        const shape = [];
 
         for (const point of this.points) {
-            const gridPoint = this.grid.getGridPoint(point);
+            const gridPoint = this.grid.getPointAt(point);
             if (gridPoint) {
-                result.push({ col: gridPoint.col, row: gridPoint.row });
+                shape.push({ row: gridPoint.row, col: gridPoint.col });
             }
         }
 
-        return result;
+        return shape;
+    }
+
+    private drawCommittedPaths() {
+        this.committedLinesGraphics.clear();
+
+        for (const path of this.committedPaths) {
+            if (path.length < 2) continue;
+
+            this.committedLinesGraphics.moveTo(path[0].x, path[0].y);
+            for (let i = 1; i < path.length; i++) {
+                this.committedLinesGraphics.lineTo(path[i].x, path[i].y);
+            }
+            this.committedLinesGraphics.stroke();
+        }
     }
 
     onDestroy() {

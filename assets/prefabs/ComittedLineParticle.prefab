@@ -153,7 +153,7 @@
     "rotatePerS": 0,
     "rotatePerSVar": 0,
     "playOnLoad": true,
-    "autoRemoveOnFinish": false,
+    "autoRemoveOnFinish": true,
     "_preview": true,
     "preview": true,
     "_custom": true,
