@@ -5,6 +5,9 @@
             "rows": 42,
             "cols": 33,
             "name": "Level 1",
+            "threeStarsThreshold": 2,
+            "twoStarsThreshold": 3,
+
             "interactablePoints": [
                 { "row": 0, "col": 0 },
                 { "row": 8, "col": 12 },
@@ -65,6 +68,8 @@
             "id": 2,
             "rows": 5,
             "cols": 5,
+            "threeStarsThreshold": 2,
+            "twoStarsThreshold": 3,
             "name": "Level 2",
             "interactablePoints": [
                 { "row": 1, "col": 1 },

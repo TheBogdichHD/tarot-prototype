@@ -1,6 +1,14 @@
 import { _decorator, Component, Vec2, Graphics, Color, CCInteger, JsonAsset } from 'cc';
 
+import { ShapeValidator } from "./ShapeValidator";
+import { UI } from "./UI";
+
 const { ccclass, property } = _decorator;
+
+interface Point {
+    row: number;
+    col: number;
+}
 
 interface GridPoint {
     position: Vec2;
@@ -15,6 +23,8 @@ interface Level {
     name: string;
     rows: number;
     cols: number;
+    threeStarsThreshold: number;
+    twoStarsThreshold: number;
     interactablePoints: { row: number; col: number }[];
     goalPoints: { row: number; col: number }[];
 }
@@ -49,12 +59,21 @@ export class Grid extends Component {
     @property(JsonAsset)
     private levelDataAsset: JsonAsset = null;
 
+    @property(UI)
+    private ui: UI = null;
+
     private currentLevel: Level = null;
 
     private gridPoints: GridPoint[][] = [];
     private interactablePoints: GridPoint[] = [];
 
     private graphics: Graphics = null;
+
+    private claimedGoalPoints: Set<string> = new Set();
+
+    public get allGoalPoints(): GridPoint[] {
+        return this.interactablePoints.filter(p => p.isGoal);
+    }
 
     private get levelData(): LevelData {
         return this.levelDataAsset.json as LevelData;
@@ -69,6 +88,9 @@ export class Grid extends Component {
     private loadLevel(levelId: number) {
         this.currentLevel = this.levelData.levels.find(level => level.id === levelId);
 
+        this.ui.threeStarsThreshold = this.currentLevel.threeStarsThreshold;
+        this.ui.twoStarsThreshold = this.currentLevel.twoStarsThreshold;
+
         this.generateGrid();
         this.drawGrid();
     }
@@ -81,6 +103,8 @@ export class Grid extends Component {
                 this.drawPoint(p);
             }
         }
+
+        this.ui.updateGoalLabel(this.claimedGoalPoints.size, this.allGoalPoints.length);
     }
 
     private drawPoint(point: GridPoint) {
@@ -88,8 +112,14 @@ export class Grid extends Component {
         let radius = this.pointRadius;
 
         if (point.isGoal) {
-            color = this.goalPointColor;
-            radius = this.goalPointRadius;
+            const key = `${point.row},${point.col}`;
+            if (this.claimedGoalPoints.has(key)) {
+                color = new Color(0, 255, 0, 255);
+                radius = this.goalPointRadius + 2;
+            } else {
+                color = this.goalPointColor;
+                radius = this.goalPointRadius;
+            }
         } else if (point.isInteractable) {
             color = this.interactablePointColor;
             radius = this.interactablePointRadius;
@@ -145,7 +175,6 @@ export class Grid extends Component {
         }
     }
 
-
     public getNearestPoint(pos: Vec2): {
         position: Vec2;
         distance: number;
@@ -185,5 +214,32 @@ export class Grid extends Component {
 
     public getAllinteractablePoints(): GridPoint[] {
         return this.interactablePoints;
+    }
+
+    public claimAllGoalPoints(snappedShape: Array<Point>): void {
+        for (let i = 0; i < snappedShape.length - 1; i++) {
+            const start = snappedShape[i];
+            const end = snappedShape[i + 1];
+            const edgePoints = this.getAllGoalPointsOnSegment(start, end);
+
+            for (const point of edgePoints)
+                this.claimedGoalPoints.add(`${point.row},${point.col}`);
+        }
+
+        this.drawGrid();
+    }
+
+    private getAllGoalPointsOnSegment(start: Point, end: Point): Array<Point> {
+        const points: Array<Point> = [];
+
+        for (const gridPoint of this.allGoalPoints) {
+            const point = { row: gridPoint.row, col: gridPoint.col };
+
+            if (ShapeValidator.isPointOnSegment(start, end, point)) {
+                points.push(point);
+            }
+        }
+
+        return points;
     }
 }

@@ -22,6 +22,7 @@ const { ccclass, property } = _decorator;
 import { Grid } from './Grid';
 import { ShapeValidator } from "./ShapeValidator";
 import { GameCamera } from './GameCamera';
+import { UI } from './UI';
 
 @ccclass('Drawing')
 export class Drawing extends Component {
@@ -34,6 +35,8 @@ export class Drawing extends Component {
     @property(Graphics)
     private committedLinesGraphics: Graphics = null;
 
+    @property(UI)
+    private ui: UI = null;
 
     @property(Node)
     private particlesParent: Node = null;
@@ -173,9 +176,15 @@ export class Drawing extends Component {
 
         if (this.points.length > 1) {
             const shape = this.getShape();
+            const template = ShapeValidator.validateShape(shape);
 
-            if (ShapeValidator.validateShape(shape)) {
+
+            if (template) {
+                this.grid.claimAllGoalPoints(shape);
+
                 this.committedPaths.push(this.points);
+
+                this.ui.updateShapeLabel(this.committedPaths.length)
                 this.drawCommittedPaths();
                 this.spawnParticlesOnPath(this.points);
             }
@@ -273,7 +282,6 @@ export class Drawing extends Component {
 
 
     public getShape(): Array<{ row: number, col: number }> {
-        // TODO: Include points on edges that weren't snapped
         const shape = [];
 
         for (const point of this.points) {
